@@ -1,0 +1,58 @@
+name: tt-leave-manager-mcp
+description: Track and manage employee time off with quick balance lookups and streamlined applications.
+version: 1.16.1
+
+startCommand:
+  type: http
+  command: ["python", "main.py"]
+  env:
+    MCP_TRANSPORT: "streamable-http"
+    MCP_HOST: "0.0.0.0"
+    PORT: "8080"
+  port: 8080
+  path: "/mcp"
+  
+configSchema:
+  type: object
+  required: ["DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME", "MCP_API_KEYS"]
+  properties:
+    DB_HOST:
+      type: string
+      title: "Database Host"
+      description: "MySQL database host address"
+      default: "103.174.10.72"
+    DB_USER:
+      type: string
+      title: "Database User"
+      description: "MySQL database username"
+      default: "tt_crm_mcp"
+    DB_PASSWORD:
+      type: string
+      title: "Database Password"
+      description: "MySQL database password"
+      default: "F*PAtqhu@sg2w58n"
+    DB_NAME:
+      type: string
+      title: "Database Name"
+      description: "MySQL database name"
+      default: "tt_crm_mcp"
+    DB_PORT:
+      type: string
+      title: "Database Port"
+      description: "MySQL database port"
+      default: "3306"
+    MCP_API_KEYS:
+      type: string
+      title: "API Keys"
+      description: "Comma-separated list of API keys for authentication"
+      default: "your-secure-api-key-here"
+    REQUIRE_API_KEY:
+      type: boolean
+      title: "Require API Key"
+      description: "Enable API key authentication"
+      default: true
+    DEBUG:
+      type: boolean
+      title: "Debug Mode"
+      description: "Enable debug logging"
+      default: false
