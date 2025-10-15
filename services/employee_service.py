@@ -3,10 +3,6 @@ import logging
 from typing import List, Optional, Dict, Any
 from difflib import SequenceMatcher
 
-try:
-    import Levenshtein
-except ImportError:
-    Levenshtein = None
 
 from utils.database import DatabaseConnection
 from models.employee import Employee, LeaveBalance

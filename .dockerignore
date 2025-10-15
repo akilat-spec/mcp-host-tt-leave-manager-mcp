@@ -1,6 +1,7 @@
 # Git
 .git
 .gitignore
+README.md
 
 # Python
 __pycache__/
@@ -11,9 +12,12 @@ __pycache__/
 env/
 venv/
 .venv/
+pip-log.txt
 
-# Environment files (except example)
+# Environment files
 .env
+.env.local
+.env.prod
 
 # IDE
 .vscode/
@@ -30,7 +34,8 @@ logs/
 Thumbs.db
 
 # Build files
-Dockerfile
+Dockerfile*
 .dockerignore
 build/
 dist/
+*.egg-info/

@@ -1,10 +1,12 @@
-name: mcp-host-tt-leave-manager-mcp
+name: tt-leave-manager-mcp
 description: Track and manage employee time off with quick balance lookups and streamlined applications.
 version: 1.16.1
 
-# Use container build type
 build:
   type: container
+  # Optional: Specify build args or context
+  # context: .
+  # dockerfile: Dockerfile
 
 startCommand:
   type: http
@@ -55,14 +57,3 @@ configSchema:
       title: "Require API Key"
       description: "Enable API key authentication"
       default: true
-    DEBUG:
-      type: boolean
-      title: "Debug Mode"
-      description: "Enable debug logging"
-      default: false
-    LOG_LEVEL:
-      type: string
-      title: "Log Level"
-      description: "Application log level"
-      enum: ["DEBUG", "INFO", "WARNING", "ERROR"]
-      default: "INFO"
