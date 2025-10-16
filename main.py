@@ -7,7 +7,7 @@ from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from config import security_config
+from config.security import security_config
 from middleware.auth import APIKeyMiddleware
 from services.employee_service import EmployeeService
 
