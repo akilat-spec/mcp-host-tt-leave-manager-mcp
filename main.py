@@ -2,11 +2,14 @@ import os
 import logging
 import socket
 from typing import Optional
+import time
 
 from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+from starlette.middleware.cors import CORSMiddleware
 
+# Import directly from modules
 from config.security import security_config
 from middleware.auth import APIKeyMiddleware
 from services.employee_service import EmployeeService
@@ -21,16 +24,42 @@ logger = logging.getLogger(__name__)
 # Initialize MCP server
 mcp = FastMCP("LeaveManagerPlus")
 
-# Add authentication middleware
+# Add CORS middleware to allow all origins (required for MCP)
+mcp.app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
+
+# Add authentication middleware (after CORS)
 mcp.app.add_middleware(APIKeyMiddleware)
 
-# Initialize services
+# Initialize services (but don't test database on import)
 employee_service = EmployeeService()
 
-# Health endpoint
+# Health endpoint (fast, no database check initially)
 @mcp.custom_route("/health", methods=["GET"])
 async def health_check(request: Request) -> JSONResponse:
-    """Health check endpoint without external dependencies"""
+    """Fast health check endpoint"""
+    try:
+        return JSONResponse({
+            "status": "healthy",
+            "service": "Leave Manager MCP Server",
+            "version": "1.16.1",
+            "timestamp": time.time()
+        })
+    except Exception as e:
+        return JSONResponse({
+            "status": "unhealthy",
+            "error": str(e)
+        }, status_code=500)
+
+# Detailed health check with database
+@mcp.custom_route("/health/detailed", methods=["GET"])
+async def detailed_health_check(request: Request) -> JSONResponse:
+    """Detailed health check with database connection test"""
     try:
         from utils.database import DatabaseConnection
         db_connected = DatabaseConnection.test_connection()
@@ -39,7 +68,8 @@ async def health_check(request: Request) -> JSONResponse:
             "service": "Leave Manager MCP Server",
             "version": "1.16.1",
             "authentication_required": security_config.require_api_key,
-            "database_connected": db_connected
+            "database_connected": db_connected,
+            "timestamp": time.time()
         })
     except Exception as e:
         return JSONResponse({
@@ -54,10 +84,15 @@ async def root(request: Request) -> JSONResponse:
         "message": "Leave Manager MCP Server",
         "status": "running",
         "version": "1.16.1",
-        "authentication_required": security_config.require_api_key
+        "authentication_required": security_config.require_api_key,
+        "endpoints": {
+            "health": "/health",
+            "health_detailed": "/health/detailed",
+            "mcp": "/mcp"
+        }
     })
 
-# MCP Tools (keep your existing tools)
+# MCP Tools with better error handling
 @mcp.tool()
 def get_employee_details(name: str, additional_context: Optional[str] = None) -> str:
     """Get comprehensive details for an employee"""
@@ -170,17 +205,16 @@ if __name__ == "__main__":
     else:
         logger.info("🔓 API Key Authentication: DISABLED")
     
-    # Database test
-    from utils.database import DatabaseConnection
-    if DatabaseConnection.test_connection():
-        logger.info("✅ Database connection: SUCCESS")
-    else:
-        logger.error("❌ Database connection: FAILED")
+    # Fast startup - don't block on database connection
+    logger.info("🚀 Server starting (database connection will be tested on first request)")
     
-    # Start server
+    # Server configuration
     transport = os.environ.get("MCP_TRANSPORT", "streamable-http")
     host = os.environ.get("MCP_HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8080"))
     
-    logger.info(f"🚀 Server starting on {host}:{port} with {transport} transport")
+    logger.info(f"🌐 Server configured for {transport} transport on {host}:{port}")
+    logger.info("📡 CORS enabled for all origins")
+    
+    # Start the MCP server
     mcp.run(transport=transport, host=host, port=port)
