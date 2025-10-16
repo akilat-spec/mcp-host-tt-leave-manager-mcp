@@ -4,9 +4,6 @@ version: 1.16.1
 
 build:
   type: container
-  # Optional: Specify build args or context
-  # context: .
-  # dockerfile: Dockerfile
 
 startCommand:
   type: http
@@ -51,9 +48,14 @@ configSchema:
       type: string
       title: "API Keys"
       description: "Comma-separated list of API keys for authentication"
-      default: "your-secure-api-key-here"
+      default: "H7rksIonql8KC348gjd9Th2UoUGUWUHU,zVfTFYOIvRsZHQTtUhqtGsJTpxEhxHUD"
     REQUIRE_API_KEY:
       type: boolean
       title: "Require API Key"
       description: "Enable API key authentication"
       default: true
+    DEBUG:
+      type: boolean
+      title: "Debug Mode"
+      description: "Enable debug logging"
+      default: false

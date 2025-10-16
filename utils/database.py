@@ -21,8 +21,7 @@ class DatabaseConnection:
                 database=os.environ.get("DB_NAME", "tt_crm_mcp"),
                 port=int(os.environ.get("DB_PORT", "3306")),
                 autocommit=True,
-                connection_timeout=30,
-                pool_size=5
+                connection_timeout=30
             )
             
             if connection.is_connected():

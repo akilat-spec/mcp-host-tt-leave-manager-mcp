@@ -1,11 +1,11 @@
 import os
 import logging
+import socket
 from typing import Optional
 
-import mysql.connector
 from fastmcp import FastMCP
 from starlette.requests import Request
-from starlette.responses import JSONResponse, PlainTextResponse
+from starlette.responses import JSONResponse
 
 # Import your modules
 from config import security_config
@@ -68,11 +68,11 @@ async def root(request: Request) -> JSONResponse:
     })
 
 # -------------------------------
-# MCP Tools (Your existing tools)
+# MCP Tools
 # -------------------------------
 @mcp.tool()
 def get_employee_details(name: str, additional_context: Optional[str] = None) -> str:
-    """Get comprehensive details for an employee including personal info, leave balance, and recent activity"""
+    """Get comprehensive details for an employee"""
     try:
         employees = employee_service.fetch_employees(search_term=name)
         
@@ -93,14 +93,12 @@ def get_employee_details(name: str, additional_context: Optional[str] = None) ->
             response += f"📅 Date of Joining: {employee.doj or 'N/A'}\n"
             response += f"🔰 Status: {'Active' if employee.is_active else 'Inactive'}\n\n"
             
-            # Leave Balance
             response += f"📊 **Leave Balance:** {leave_balance.current_balance:.1f} days\n"
             response += f"   - Opening Balance: {leave_balance.opening_balance}\n"
             response += f"   - Leaves Used: {leave_balance.used_leaves:.1f} days\n"
             
             return response
         else:
-            # Handle multiple matches
             options = []
             for i, emp in enumerate(employees, 1):
                 option = f"{i}. 👤 {emp.developer_name}"
@@ -119,7 +117,7 @@ def get_employee_details(name: str, additional_context: Optional[str] = None) ->
 
 @mcp.tool()
 def get_leave_balance(name: str, additional_context: Optional[str] = None) -> str:
-    """Get detailed leave balance information for an employee"""
+    """Get detailed leave balance for an employee"""
     try:
         employees = employee_service.fetch_employees(search_term=name)
         
@@ -140,15 +138,7 @@ def get_leave_balance(name: str, additional_context: Optional[str] = None) -> st
         
         response += f"💰 **Current Balance:** {leave_balance.current_balance:.1f} days\n"
         response += f"📥 Opening Balance: {leave_balance.opening_balance} days\n"
-        response += f"📤 Leaves Used: {leave_balance.used_leaves:.1f} days\n\n"
-        
-        if leave_balance.leave_details:
-            response += f"📋 **Breakdown of Used Leaves:**\n"
-            for leave_type, count in leave_balance.leave_details.items():
-                lt = (leave_type or '').upper()
-                days_equiv = 1.0 if lt == 'FULL DAY' else 0.5 if lt in ['HALF DAY','COMPENSATION HALF DAY'] else 0.25 if lt in ['2 HRS','COMPENSATION 2 HRS'] else 1.0
-                total_days = float(count) * days_equiv
-                response += f"   - {leave_type}: {count} times ({total_days:.1f} days)\n"
+        response += f"📤 Leaves Used: {leave_balance.used_leaves:.1f} days\n"
         
         return response
         
@@ -156,53 +146,12 @@ def get_leave_balance(name: str, additional_context: Optional[str] = None) -> st
         logger.error(f"Error in get_leave_balance: {e}")
         return f"❌ Error retrieving leave balance: {str(e)}"
 
-@mcp.tool()
-def search_employees(search_query: str) -> str:
-    """Search for employees by name, designation, email, or employee number"""
-    try:
-        employees = employee_service.fetch_employees(search_term=search_query)
-        
-        if not employees:
-            return f"❌ No employees found matching '{search_query}'"
-        
-        response = f"🔍 **Search Results for '{search_query}':**\n\n"
-        
-        for i, emp in enumerate(employees, 1):
-            response += f"{i}. **{emp.developer_name}**\n"
-            response += f"   💼 {emp.designation or 'N/A'}\n"
-            response += f"   📧 {emp.email_id or 'N/A'}\n"
-            response += f"   📞 {emp.mobile or 'N/A'}\n"
-            response += f"   🆔 {emp.emp_number or 'N/A'}\n"
-            response += f"   🔰 {'Active' if emp.is_active else 'Inactive'}\n"
-            
-            # Get quick leave balance
-            try:
-                leave_balance = employee_service.get_leave_balance(emp.id)
-                response += f"   📊 Leave Balance: {leave_balance.current_balance:.1f} days\n"
-            except Exception:
-                pass
-            
-            response += "\n"
-        
-        return response
-        
-    except Exception as e:
-        logger.error(f"Error in search_employees: {e}")
-        return f"❌ Error searching employees: {str(e)}"
-
-# Add more of your existing tools here...
+# Add more tools as needed...
 
 # -------------------------------
 # Application Startup
 # -------------------------------
 if __name__ == "__main__":
-    # Check for required dependencies
-    try:
-        import Levenshtein
-        logger.info("Levenshtein library available - enhanced name matching enabled")
-    except ImportError:
-        logger.warning("python-Levenshtein not installed. Using basic fuzzy matching.")
-    
     # Display startup information
     logger.info("Starting Leave Manager Plus MCP Server")
     
