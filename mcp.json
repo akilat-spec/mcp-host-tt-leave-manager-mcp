@@ -1,72 +1,56 @@
-// {
-//   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-16/server.schema.json",
-//   "name": "ai.smithery/akilat-spec-tt-leave-manager-mcp",
-//   "description": "Track and manage employee time off with quick balance lookups and streamlined applications.",
-//   "version": "1.16.1",
-//   "repository": {
-//     "url": "https://github.com/akilat-spec/tt-leave-manager-mcp",
-//     "source": "github"
-//   },
-//   "remotes": [
-//     {
-//       "type": "streamable-http",
-//       "url": "https://three-flowers-itch.loca.lt",
-//       "configSchema": {
-//         "type": "object",
-//         "required": ["DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME", "MCP_API_KEYS"],
-//         "properties": {
-//           "DB_HOST": {
-//             "type": "string",
-//             "default": "103.174.10.72"
-//           },
-//           "DB_USER": {
-//             "type": "string",
-//             "default": "tt_crm_mcp"
-//           },
-//           "DB_PASSWORD": {
-//             "type": "string",
-//             "default": "F*PAtqhu@sg2w58n"
-//           },
-//           "DB_NAME": {
-//             "type": "string",
-//             "default": "tt_crm_mcp"
-//           },
-//           "DB_PORT": {
-//             "type": "string",
-//             "default": "3306"
-//           },
-//           "MCP_API_KEYS": {
-//             "type": "string",
-//             "description": "Comma-separated list of valid API keys"
-//           },
-//           "MCP_REQUIRE_API_KEY": {
-//             "type": "string",
-//             "description": "Set to 'false' to disable API key authentication",
-//             "default": "true"
-//           }
-//         }
-//       }
-//     }
-//   ]
-// }
-
-
 {
-  "mcpServers": {
-    "secure-leave-manager": {
-      "command": "python",
-      "args": ["/app/start_server.py"],
-      "env": {
-        "DB_HOST": "103.174.10.72",
-        "DB_USER": "tt_crm_mcp",
-        "DB_PASSWORD": "F*PAtqhu@sg2w58n",
-        "DB_NAME": "tt_crm_mcp",
-        "DB_PORT": "3306",
-        "MCP_API_KEYS": "0YUrS7QY3LMBWOb68f1Vswk3B1df9B8L,xilUGWevlvAarM1rOtDvrWCQR2lwH3B3",
-        "MCP_REQUIRE_API_KEY": "true",
-        "MCP_TRANSPORT": "streamable-http",
-        "PORT": "8081"
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-16/server.schema.json",
+  "name": "ai.smithery/akilat-spec-tt-leave-manager-mcp",
+  "description": "Secure employee leave management system with API key authentication",
+  "version": "2.0.0",
+  "repository": {
+    "url": "https://github.com/akilat-spec/tt-leave-manager-mcp",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://your-server-url.loca.lt",
+      "configSchema": {
+        "type": "object",
+        "required": ["DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME", "MCP_API_KEYS"],
+        "properties": {
+          "DB_HOST": {
+            "type": "string",
+            "description": "Database host address",
+            "default": "103.174.10.72"
+          },
+          "DB_USER": {
+            "type": "string", 
+            "description": "Database username",
+            "default": "tt_crm_mcp"
+          },
+          "DB_PASSWORD": {
+            "type": "string",
+            "description": "Database password",
+            "default": "F*PAtqhu@sg2w58n"
+          },
+          "DB_NAME": {
+            "type": "string",
+            "description": "Database name",
+            "default": "tt_crm_mcp"
+          },
+          "DB_PORT": {
+            "type": "string",
+            "description": "Database port",
+            "default": "3306"
+          },
+          "MCP_API_KEYS": {
+            "type": "string",
+            "description": "Comma-separated list of valid API keys for authentication"
+          },
+          "REQUIRE_API_KEY": {
+            "type": "string",
+            "description": "Set to 'false' to disable API key authentication (NOT RECOMMENDED)",
+            "default": "true"
+          }
+        }
       }
     }
-  }
+  ]
 }

@@ -1,20 +1,26 @@
-# Secure MCP Leave Manager Server
+# Secure TT Leave Manager MCP Server
 
-A secure Model Context Protocol server for employee leave management, HR operations, and company management with API key authentication.
+A highly secure Model Context Protocol server for employee leave management with mandatory API key authentication.
 
-## Features
+## 🔐 Security Features
 
-- 🔐 **API Key Authentication** - Secure access control
-- 👥 **Employee Management** - Search, profiles, leave balances
-- 📊 **Leave Management** - Balance tracking, history, approvals
-- 💼 **HR Operations** - PF status, incentives, attendance
-- 🏢 **Company Management** - Clients, projects, payments
-- 🤖 **AI-Powered Search** - Fuzzy name matching
+- **Mandatory API Key Authentication** - No access without valid API key
+- **Bearer Token Authentication** - Standard HTTP authentication
+- **Configurable API Keys** - Multiple keys supported
+- **Secure Middleware** - All endpoints protected
+- **Health Check** - Public health endpoint for monitoring
 
-## Quick Start
+## 🚀 Deployment on Smithery.ai
 
-### 1. Environment Setup
+### 1. Environment Variables
 
-```bash
-cp .env.example .env
-# Edit .env with your database credentials and API key
+Configure these required environment variables in Smithery:
+
+```env
+DB_HOST=103.174.10.72
+DB_USER=tt_crm_mcp  
+DB_PASSWORD=F*PAtqhu@sg2w58n
+DB_NAME=tt_crm_mcp
+DB_PORT=3306
+MCP_API_KEYS=0YUrS7QY3LMBWOb68f1Vswk3B1df9B8L,xilUGWevlvAarM1rOtDvrWCQR2lwH3B3
+REQUIRE_API_KEY=true
