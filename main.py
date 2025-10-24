@@ -1,46 +1,78 @@
 import os
 import re
 import urllib.parse
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Set
 from difflib import SequenceMatcher
 from datetime import datetime, date, timedelta
 
-# Third-party imports with fallbacks
-try:
-    import mysql.connector
-    from mysql.connector import Error
-except ImportError:
-    print("❌ mysql-connector-python not installed. Install with: pip install mysql-connector-python")
-    raise
+# third-party
+import mysql.connector
+from fastmcp import FastMCP
 
-try:
-    from fastmcp import FastMCP
-except ImportError:
-    print("❌ fastmcp not installed. Install with: pip install fastmcp")
-    raise
-
-# For authentication and responses
-try:
-    from starlette.requests import Request
-    from starlette.responses import JSONResponse
-except ImportError:
-    print("❌ starlette not installed. Install with: pip install starlette")
-    raise
-
-# Optional Levenshtein import
+# optional Levenshtein import
 try:
     import Levenshtein
-    LEVENSHTEIN_AVAILABLE = True
-except ImportError:
+except Exception:
     Levenshtein = None
-    LEVENSHTEIN_AVAILABLE = False
-    print("⚠️  python-levenshtein not installed. Fuzzy matching will use difflib only.")
+
+# For health route responses (used by FastMCP custom_route)
+from starlette.requests import Request
+from starlette.responses import PlainTextResponse, JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp
 
 # -------------------------------
-# Configuration and Constants
+# API Key Authentication Middleware
 # -------------------------------
-API_KEYS = [key.strip() for key in os.environ.get("MCP_API_KEYS", "").split(",") if key.strip()]
-REQUIRE_API_KEY = os.environ.get("MCP_REQUIRE_API_KEY", "true").lower() == "true"
+class APIKeyMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app: ASGIApp):
+        super().__init__(app)
+        self.valid_api_keys = self._load_api_keys()
+        self.require_auth = os.environ.get("REQUIRE_API_KEY", "true").lower() == "true"
+    
+    def _load_api_keys(self) -> Set[str]:
+        """Load API keys from environment variables"""
+        keys = set()
+        
+        # Primary Smithery API key
+        smithery_key = os.environ.get("SMITHERY_API_KEY")
+        if smithery_key:
+            keys.add(smithery_key)
+        
+        # Additional API keys (comma-separated)
+        additional_keys = os.environ.get("MCP_API_KEYS", "")
+        for key in additional_keys.split(","):
+            key = key.strip()
+            if key:
+                keys.add(key)
+        
+        return keys
+
+    async def dispatch(self, request: Request, call_next):
+        # Skip auth for health check and root endpoint
+        if request.url.path in ["/health", "/"]:
+            return await call_next(request)
+        
+        # Check if authentication is required
+        if self.require_auth and (request.url.path.startswith("/mcp") or request.method == "POST"):
+            auth_header = request.headers.get("Authorization")
+            if not auth_header or not auth_header.startswith("Bearer "):
+                return JSONResponse(
+                    {
+                        "error": "Authentication required",
+                        "message": "Use: Authorization: Bearer <API_KEY>"
+                    }, 
+                    status_code=401
+                )
+            
+            api_key = auth_header.replace("Bearer ", "").strip()
+            if api_key not in self.valid_api_keys:
+                return JSONResponse(
+                    {"error": "Invalid API key"}, 
+                    status_code=403
+                )
+        
+        return await call_next(request)
 
 # -------------------------------
 # MCP server
@@ -52,50 +84,16 @@ mcp = FastMCP("LeaveManagerPlus")
 # -------------------------------
 def get_connection():
     """
-    Read DB credentials from environment variables with proper error handling
+    Read DB credentials from environment variables
     """
-    try:
-        connection = mysql.connector.connect(
-            host=os.environ.get("DB_HOST", "103.174.10.72"),
-            user=os.environ.get("DB_USER", "tt_crm_mcp"),
-            password=os.environ.get("DB_PASSWORD", "F*PAtqhu@sg2w58n"),
-            database=os.environ.get("DB_NAME", "tt_crm_mcp"),
-            port=int(os.environ.get("DB_PORT", "3306")),
-            autocommit=True,
-            buffered=True  # This helps prevent "Unread result found" errors
-        )
-        
-        # Test the connection
-        if connection.is_connected():
-            return connection
-        else:
-            raise Exception("Failed to establish database connection")
-            
-    except Error as e:
-        print(f"❌ Database connection error: {e}")
-        raise
-    except Exception as e:
-        print(f"❌ Unexpected database error: {e}")
-        raise
-
-def test_database_connection():
-    """Test database connection with proper cleanup"""
-    conn = None
-    cursor = None
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1")
-        result = cursor.fetchone()
-        return result is not None and result[0] == 1
-    except Exception as e:
-        print(f"❌ Database test failed: {e}")
-        return False
-    finally:
-        if cursor:
-            cursor.close()
-        if conn and conn.is_connected():
-            conn.close()
+    return mysql.connector.connect(
+        host=os.environ.get("DB_HOST", "103.174.10.72"),
+        user=os.environ.get("DB_USER", "tt_crm_mcp"),
+        password=os.environ.get("DB_PASSWORD", "F*PAtqhu@sg2w58n"),
+        database=os.environ.get("DB_NAME", "tt_crm_mcp"),
+        port=int(os.environ.get("DB_PORT", "3306")),
+        autocommit=True,
+    )
 
 # -------------------------------
 # AI-Powered Name Matching Utilities
@@ -113,11 +111,10 @@ class NameMatcher:
         name1_norm = NameMatcher.normalize_name(name1)
         name2_norm = NameMatcher.normalize_name(name2)
 
-        if LEVENSHTEIN_AVAILABLE and Levenshtein:
+        if Levenshtein:
             try:
                 dist = Levenshtein.distance(name1_norm, name2_norm)
-                max_len = max(len(name1_norm), len(name2_norm), 1)
-                levenshtein_sim = 1 - (dist / max_len)
+                levenshtein_sim = 1 - (dist / max(len(name1_norm), len(name2_norm), 1))
             except Exception:
                 levenshtein_sim = SequenceMatcher(None, name1_norm, name2_norm).ratio()
         else:
@@ -156,10 +153,8 @@ class NameMatcher:
                 scores.append(NameMatcher.similarity_score(search_name, f"{last_name} {first_name}"))
 
             if search_parts['last']:
-                first_name_part = emp_full_name.split()[0] if emp_full_name else ''
-                last_name_part = ' '.join(emp_full_name.split()[1:]) if ' ' in emp_full_name else ''
-                first_score = NameMatcher.similarity_score(search_parts['first'], first_name_part)
-                last_score = NameMatcher.similarity_score(search_parts['last'], last_name_part)
+                first_score = NameMatcher.similarity_score(search_parts['first'], emp_full_name.split()[0] if emp_full_name else '')
+                last_score = NameMatcher.similarity_score(search_parts['last'], ' '.join(emp_full_name.split()[1:]) if ' ' in emp_full_name else '')
                 if first_score > 0 or last_score > 0:
                     scores.append((first_score + last_score) / 2)
 
@@ -383,7 +378,7 @@ def resolve_employee_ai(search_name: str, additional_context: str = None) -> Dic
     }
 
 # -------------------------------
-# Core Employee Tools
+# Existing tools (kept) + new HR tools
 # -------------------------------
 @mcp.tool()
 def get_employee_details(name: str, additional_context: Optional[str] = None) -> str:
@@ -425,7 +420,7 @@ def get_employee_details(name: str, additional_context: Optional[str] = None) ->
     # Recent Work Reports
     if work_reports:
         response += f"📋 **Recent Work (Last 7 days):**\n"
-        for report in work_reports[:3]:
+        for report in work_reports[:3]:  # Show last 3 reports
             hours = (report['total_time'] or 0) / 3600 if report.get('total_time') else 0
             response += f"   - {report['date']}: {report['task'][:60]}... ({hours:.1f}h)\n"
         response += "\n"
@@ -433,7 +428,7 @@ def get_employee_details(name: str, additional_context: Optional[str] = None) ->
     # Recent Leave Requests
     if leave_requests:
         response += f"🏖️  **Recent Leave Requests:**\n"
-        for leave in leave_requests[:3]:
+        for leave in leave_requests[:3]:  # Show last 3 leaves
             status_icon = "✅" if leave['status'] == 'Approved' else "⏳" if leave['status'] in ['Requested', 'Pending'] else "❌"
             response += f"   - {leave['date_of_leave']}: {leave['leave_type']} {status_icon}\n"
     
@@ -586,30 +581,406 @@ def search_employees(search_query: str) -> str:
     return response
 
 # -------------------------------
+# New HR-specific tools
+# -------------------------------
+
+@mcp.tool()
+def get_employee_profile(name: str, additional_context: Optional[str] = None) -> str:
+    """Return extended HR profile (documents, PF status, confirmation, etc.)"""
+    resolution = resolve_employee_ai(name, additional_context)
+    if resolution['status'] != 'resolved':
+        if resolution['status'] == 'ambiguous':
+            return f"🔍 Ambiguous: \n\n{format_employee_options(resolution['employees'])}"
+        return f"❌ No employee found matching '{name}'."
+
+    emp = resolution['employee']
+    # Build profile
+    response = f"📇 **HR Profile: {emp['developer_name']}**\n"
+    response += f"🆔 ID: {emp['id']}  |  Emp#: {emp.get('emp_number','N/A')}\n"
+    response += f"💼 Designation: {emp.get('designation','N/A')}\n"
+    response += f"📅 DOJ: {emp.get('doj','N/A')}  |  Confirmation Date: {emp.get('confirmation_date','N/A') if 'confirmation_date' in emp else 'N/A'}\n"
+    response += f"🏥 PF Enabled: {'Yes' if emp.get('is_pf_enabled') in [1,'1',True] else 'No'}\n"
+    response += f"📧 Work Email: {emp.get('email_id','N/A')}  |  Personal Email: {emp.get('personal_emaill','N/A') if 'personal_emaill' in emp else 'N/A'}\n"
+    response += f"📞 Mobile: {emp.get('mobile','N/A')}  |  Emergency Contact: {emp.get('emergency_contact_name','N/A')} ({emp.get('emergency_contact_no','N/A')})\n\n"
+
+    # Documents urls if present (show placeholders)
+    doc_keys = ['pan_front','pan_back','aadhar_front','aadhar_back','degree_front','degree_back']
+    docs_present = []
+    for k in doc_keys:
+        if emp.get(k):
+            docs_present.append(k)
+    if docs_present:
+        response += f"🗂️ Documents available: {', '.join(docs_present)}\n"
+    else:
+        response += "🗂️ No HR document images found.\n"
+
+    # Opening leave + PF join date
+    if 'opening_leave_balance' in emp:
+        try:
+            response += f"📊 Opening Leave Balance: {float(emp.get('opening_leave_balance') or 0):.1f} days\n"
+        except Exception:
+            pass
+    if emp.get('pf_join_date'):
+        response += f"📌 PF Join Date: {emp.get('pf_join_date')}\n"
+
+    return response
+
+@mcp.tool()
+def get_appraisal_feedback(name: str, additional_context: Optional[str] = None, limit: int = 5) -> str:
+    """Get recent positive/negative feedback for an employee"""
+    resolution = resolve_employee_ai(name, additional_context)
+    if resolution['status'] != 'resolved':
+        if resolution['status'] == 'ambiguous':
+            return f"🔍 Ambiguous: \n\n{format_employee_options(resolution['employees'])}"
+        return f"❌ No employee found matching '{name}'"
+
+    emp = resolution['employee']
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("""
+            SELECT project_name, feedback_type, date_of_incident, comments
+            FROM appraisal_feedback
+            WHERE developer_id = %s
+            ORDER BY date_of_incident DESC
+            LIMIT %s
+        """, (emp['id'], int(limit)))
+        feedbacks = cursor.fetchall()
+
+        if not feedbacks:
+            return f"ℹ️ No appraisal feedback found for {emp['developer_name']}."
+
+        response = f"🗂️ **Appraisal Feedback for {emp['developer_name']}**\n\n"
+        for fb in feedbacks:
+            icon = "👍" if (fb.get('feedback_type') or "").upper() == "POSITIVE" else "👎"
+            response += f"{icon} **{fb.get('project_name','-')}** ({fb.get('date_of_incident','-')})\n"
+            if fb.get('comments'):
+                response += f"💬 {fb.get('comments')}\n"
+            response += "---\n"
+        return response
+    except Exception as e:
+        return f"❌ Error fetching appraisal feedback: {e}"
+    finally:
+        cursor.close()
+        conn.close()
+
+@mcp.tool()
+def get_incentives(name: str, additional_context: Optional[str] = None) -> str:
+    """Retrieve incentive earnings for an employee"""
+    resolution = resolve_employee_ai(name, additional_context)
+    if resolution['status'] != 'resolved':
+        if resolution['status'] == 'ambiguous':
+            return f"🔍 Ambiguous: \n\n{format_employee_options(resolution['employees'])}"
+        return f"❌ No employee found matching '{name}'"
+
+    emp = resolution['employee']
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("""
+            SELECT ie.id, ie.incentive, ie.remarks, ps.project_name, ie.added_at
+            FROM incentive_earned ie
+            LEFT JOIN project_settings ps ON ie.project_settings_id = ps.id
+            WHERE ie.user_id = %s
+            ORDER BY ie.added_at DESC
+            LIMIT 20
+        """, (emp['id'],))
+        rows = cursor.fetchall()
+        if not rows:
+            return f"ℹ️ No incentives recorded for {emp['developer_name']}."
+
+        total = sum(float(r.get('incentive') or 0) for r in rows)
+        response = f"💸 **Incentives for {emp['developer_name']}** — Total last entries: {len(rows)}\n"
+        response += f"🏷️ Sum: {total:.2f}\n\n"
+        for r in rows[:10]:
+            response += f"• {r.get('project_name','-')} — {r.get('incentive',0):.2f} ({r.get('added_at')})\n"
+            if r.get('remarks'):
+                response += f"  _{r.get('remarks')}_\n"
+        return response
+    except Exception as e:
+        return f"❌ Error retrieving incentives: {e}"
+    finally:
+        cursor.close()
+        conn.close()
+
+@mcp.tool()
+def get_attendance_summary(name: str, days: int = 30, additional_context: Optional[str] = None) -> str:
+    """
+    Summarize attendance/presence using work_report entries and approved leaves.
+    Heuristic: days with work_report logged count as present. Approved full-day leaves count as present (or as leave).
+    """
+    resolution = resolve_employee_ai(name, additional_context)
+    if resolution['status'] != 'resolved':
+        if resolution['status'] == 'ambiguous':
+            return f"🔍 Ambiguous: \n\n{format_employee_options(resolution['employees'])}"
+        return f"❌ No employee found matching '{name}'"
+    emp = resolution['employee']
+    end_date = date.today()
+    start_date = end_date - timedelta(days=days)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        # work_report days
+        cursor.execute("""
+            SELECT DISTINCT date FROM work_report
+            WHERE developer_id = %s AND date >= %s AND date <= %s
+        """, (emp['id'], start_date, end_date))
+        work_days = {r['date'] for r in cursor.fetchall() if r.get('date')}
+        # approved leaves
+        cursor.execute("""
+            SELECT date_of_leave, leave_type FROM leave_requests
+            WHERE developer_id = %s AND status = 'Approved' AND date_of_leave >= %s AND date_of_leave <= %s
+        """, (emp['id'], start_date, end_date))
+        leaves = cursor.fetchall()
+        leave_days = [l['date_of_leave'] for l in leaves if l.get('date_of_leave')]
+
+        total_days = (end_date - start_date).days + 1
+        present_days = len(work_days)
+        approved_leave_days = len(set(leave_days))
+        absent_or_missing = total_days - (present_days + approved_leave_days)
+
+        response = f"📅 **Attendance Summary for {emp['developer_name']}**\n"
+        response += f"Period: {start_date} to {end_date} ({total_days} days)\n"
+        response += f"✅ Present (work_report): {present_days} days\n"
+        response += f"🏖️ Approved Leaves: {approved_leave_days} days\n"
+        response += f"❗Absent/Missing logs: {absent_or_missing} days\n"
+        return response
+    except Exception as e:
+        return f"❌ Error generating attendance summary: {e}"
+    finally:
+        cursor.close()
+        conn.close()
+
+@mcp.tool()
+def get_pf_status(name: str, additional_context: Optional[str] = None) -> str:
+    """Check PF status and PF join / releiving dates"""
+    resolution = resolve_employee_ai(name, additional_context)
+    if resolution['status'] != 'resolved':
+        if resolution['status'] == 'ambiguous':
+            return f"🔍 Ambiguous: \n\n{format_employee_options(resolution['employees'])}"
+        return f"❌ No employee found matching '{name}'"
+    emp = resolution['employee']
+    response = f"🏦 **PF Status for {emp['developer_name']}**\n"
+    response += f"PF Enabled: {'Yes' if emp.get('is_pf_enabled') in [1,'1',True] else 'No'}\n"
+    response += f"PF Join Date: {emp.get('pf_join_date','N/A')}\n"
+    response += f"Releiving Date: {emp.get('releiving_date','N/A') if 'releiving_date' in emp else 'N/A'}\n"
+    return response
+
+# -------------------------------
+# Company Management Activities
+# -------------------------------
+@mcp.tool()
+def get_client_list(active_only: bool = True) -> str:
+    """List clients with contact details"""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        if active_only:
+            cursor.execute("SELECT id, client_name, company_name, contact_person, email_id, phone, status FROM client WHERE status = 1 ORDER BY client_name")
+        else:
+            cursor.execute("SELECT id, client_name, company_name, contact_person, email_id, phone, status FROM client ORDER BY client_name")
+        rows = cursor.fetchall()
+        if not rows:
+            return "ℹ️ No clients found."
+
+        response = "👥 **Clients**\n\n"
+        for r in rows[:50]:
+            response += f"• {r.get('client_name')} — {r.get('company_name')}\n"
+            response += f"   Contact: {r.get('contact_person') or 'N/A'} — {r.get('email_id') or 'N/A'} — {r.get('phone') or 'N/A'}\n"
+            response += f"   Status: {'Active' if r.get('status') == 1 else 'Inactive'}\n\n"
+        return response
+    except Exception as e:
+        return f"❌ Error fetching clients: {e}"
+    finally:
+        cursor.close()
+        conn.close()
+
+@mcp.tool()
+def get_projects_overview(active_only: bool = True) -> str:
+    """Show active (or all) projects with client info"""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        if active_only:
+            cursor.execute("""
+                SELECT p.id, p.title, p.status, c.client_name, c.email_id
+                FROM project p
+                LEFT JOIN client c ON p.client_id = c.id
+                WHERE p.status = 1
+                ORDER BY p.date DESC
+            """)
+        else:
+            cursor.execute("""
+                SELECT p.id, p.title, p.status, c.client_name, c.email_id
+                FROM project p
+                LEFT JOIN client c ON p.client_id = c.id
+                ORDER BY p.date DESC
+            """)
+        projects = cursor.fetchall()
+        if not projects:
+            return "❌ No projects found."
+
+        response = "🏗️ **Projects Overview**\n\n"
+        for proj in projects[:100]:
+            response += f"📌 {proj.get('title')} (ID: {proj.get('id')})\n"
+            response += f"   Client: {proj.get('client_name') or 'N/A'} — {proj.get('email_id') or 'N/A'}\n"
+            response += f"   Status: {'Active' if proj.get('status') == 1 else 'Inactive'}\n\n"
+        return response
+    except Exception as e:
+        return f"❌ Error fetching projects: {e}"
+    finally:
+        cursor.close()
+        conn.close()
+
+@mcp.tool()
+def get_project_status_updates(project_settings_id: Optional[int] = None, limit: int = 20) -> str:
+    """Fetch milestone progress & completion percentage"""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        if project_settings_id:
+            cursor.execute("""
+                SELECT ps.id as project_settings_id, ps.project_name, ps.project_id, ps.current_milestone_id,
+                       ps.total_estimated_hrs, ps.is_incentive_enabled,
+                       pu.user_id as updated_by, ps.added_at
+                FROM project_settings ps
+                LEFT JOIN project_status_updates pu ON pu.project_settings_id = ps.id
+                WHERE ps.id = %s
+                LIMIT %s
+            """, (project_settings_id, limit))
+            rows = cursor.fetchall()
+        else:
+            cursor.execute("""
+                SELECT ps.id as project_settings_id, ps.project_name, ps.project_id, ps.current_milestone_id,
+                       ps.total_estimated_hrs, ps.is_incentive_enabled,
+                       pu.user_id as updated_by, pu.required_hours, pu.per_completed, pu.added_at
+                FROM project_settings ps
+                LEFT JOIN project_status_updates pu ON pu.project_settings_id = ps.id
+                ORDER BY pu.added_at DESC
+                LIMIT %s
+            """, (limit,))
+            rows = cursor.fetchall()
+
+        if not rows:
+            return "ℹ️ No project status updates found."
+
+        response = "🔄 **Project Status Updates**\n\n"
+        for r in rows[:limit]:
+            response += f"• Project: {r.get('project_name','-')} (Settings ID: {r.get('project_settings_id')})\n"
+            if r.get('required_hours') is not None:
+                response += f"   Required Hours: {r.get('required_hours')} | Completed%: {r.get('per_completed')}\n"
+            response += f"   Milestone: {r.get('current_milestone_id') or '-'} | Total Est Hrs: {r.get('total_estimated_hrs') or 0}\n"
+            response += f"   Updated at: {r.get('added_at')}\n\n"
+        return response
+    except Exception as e:
+        return f"❌ Error fetching project status updates: {e}"
+    finally:
+        cursor.close()
+        conn.close()
+
+@mcp.tool()
+def get_payments_summary(period_months: int = 12) -> str:
+    """View total payments received & missed invoices summary for last N months"""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cutoff = date.today() - timedelta(days=30*period_months)
+        cursor.execute("""
+            SELECT SUM(amount) as total_received, COUNT(*) as count_received
+            FROM payments_received
+            WHERE added_at >= %s
+        """, (cutoff,))
+        rec = cursor.fetchone() or {}
+        total_received = float(rec.get('total_received') or 0)
+        count_received = int(rec.get('count_received') or 0)
+
+        cursor.execute("""
+            SELECT status, COUNT(*) as cnt, SUM(amount) as total_amount
+            FROM missed_invoices
+            WHERE added_at >= %s
+            GROUP BY status
+        """, (cutoff,))
+        invoices = cursor.fetchall()
+
+        response = f"💰 **Payments Summary (last {period_months} months)**\n"
+        response += f"Total Received: {total_received:.2f} across {count_received} payments\n\n"
+        if invoices:
+            response += "Missed/Other Invoices:\n"
+            for inv in invoices:
+                response += f" • {inv.get('status')}: {inv.get('cnt')} invoices — Total: {float(inv.get('total_amount') or 0):.2f}\n"
+        else:
+            response += "No missed invoices in the period.\n"
+        return response
+    except Exception as e:
+        return f"❌ Error computing payments summary: {e}"
+    finally:
+        cursor.close()
+        conn.close()
+
+@mcp.tool()
+def get_fixed_expenses(project_id: Optional[str] = None) -> str:
+    """Retrieve company/project-level fixed expenses"""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        if project_id:
+            cursor.execute("SELECT id, project_id, purpose, amount, added_at FROM fixed_expenses WHERE project_id = %s ORDER BY added_at DESC LIMIT 100", (project_id,))
+        else:
+            cursor.execute("SELECT id, project_id, purpose, amount, added_at FROM fixed_expenses ORDER BY added_at DESC LIMIT 100")
+        rows = cursor.fetchall()
+        if not rows:
+            return "ℹ️ No fixed expenses found."
+
+        total = sum(float(r.get('amount') or 0) for r in rows)
+        response = f"🧾 **Fixed Expenses** — Entries: {len(rows)} — Total: {total:.2f}\n\n"
+        for r in rows[:50]:
+            response += f"• Project: {r.get('project_id')} — {r.get('purpose')} — {r.get('amount'):.2f} ({r.get('added_at')})\n"
+        return response
+    except Exception as e:
+        return f"❌ Error fetching fixed expenses: {e}"
+    finally:
+        cursor.close()
+        conn.close()
+
+@mcp.tool()
+def get_holidays(upcoming_days: int = 90) -> str:
+    """List upcoming company holidays"""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        today = date.today()
+        end = today + timedelta(days=upcoming_days)
+        cursor.execute("""
+            SELECT occasion, holiday_date
+            FROM holidays
+            WHERE holiday_date >= %s AND holiday_date <= %s
+            ORDER BY holiday_date ASC
+        """, (today, end))
+        rows = cursor.fetchall()
+        if not rows:
+            return f"ℹ️ No holidays in the next {upcoming_days} days."
+
+        response = f"🎉 **Upcoming Holidays (next {upcoming_days} days)**\n"
+        for r in rows[:100]:
+            response += f"• {r.get('holiday_date')} — {r.get('occasion')}\n"
+        return response
+    except Exception as e:
+        return f"❌ Error fetching holidays: {e}"
+    finally:
+        cursor.close()
+        conn.close()
+
+# -------------------------------
 # MCP Endpoint + Health
 # -------------------------------
+@mcp.custom_route("/mcp", methods=["POST"])
+async def mcp_endpoint(request: Request):
+    """MCP protocol endpoint"""
+    return JSONResponse({"status": "MCP server is running"})
+
 @mcp.custom_route("/health", methods=["GET"])
-async def health_check(request: Request) -> JSONResponse:
-    """Health check endpoint that shows authentication status"""
-    health_info = {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "authentication_required": REQUIRE_API_KEY,
-        "api_keys_configured": len(API_KEYS) > 0,
-        "levenshtein_available": LEVENSHTEIN_AVAILABLE,
-        "database": "unknown"
-    }
-    
-    # Test database connection
-    try:
-        if test_database_connection():
-            health_info["database"] = "connected"
-        else:
-            health_info["database"] = "disconnected"
-    except Exception as e:
-        health_info["database"] = f"error: {str(e)}"
-    
-    return JSONResponse(health_info)
+async def health_check(request: Request) -> PlainTextResponse:
+    return PlainTextResponse("OK")
 
 @mcp.custom_route("/", methods=["GET"])
 async def root(request: Request) -> JSONResponse:
@@ -617,54 +988,85 @@ async def root(request: Request) -> JSONResponse:
         "message": "Leave Manager + HR + Company Management MCP Server",
         "status": "running",
         "version": "1.0.0",
-        "authentication_required": REQUIRE_API_KEY,
-        "documentation": "Use X-API-Key header or Bearer token for authentication"
+        "authentication": "API Key Required (Bearer Token)"
     })
+
+# -------------------------------
+# Manual API Key Check for MCP endpoints
+# -------------------------------
+def check_api_key(request: Request) -> Optional[JSONResponse]:
+    """Manual API key check for MCP endpoints"""
+    smithery_key = os.environ.get("SMITHERY_API_KEY")
+    additional_keys = os.environ.get("MCP_API_KEYS", "")
+    require_auth = os.environ.get("REQUIRE_API_KEY", "true").lower() == "true"
+    
+    if not require_auth or (not smithery_key and not additional_keys.strip()):
+        return None
+    
+    valid_keys = set()
+    if smithery_key:
+        valid_keys.add(smithery_key)
+    for key in additional_keys.split(","):
+        key = key.strip()
+        if key:
+            valid_keys.add(key)
+    
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return JSONResponse(
+            {
+                "error": "Authentication required",
+                "message": "Use: Authorization: Bearer <API_KEY>"
+            }, 
+            status_code=401
+        )
+    
+    api_key = auth_header.replace("Bearer ", "").strip()
+    if api_key not in valid_keys:
+        return JSONResponse(
+            {"error": "Invalid API key"}, 
+            status_code=403
+        )
+    
+    return None
+
+# Override the MCP endpoint with authentication
+@mcp.custom_route("/mcp", methods=["POST"])
+async def secure_mcp_endpoint(request: Request):
+    """Secure MCP protocol endpoint with API key authentication"""
+    # Check API key
+    auth_error = check_api_key(request)
+    if auth_error:
+        return auth_error
+    
+    return JSONResponse({"status": "MCP server is running"})
 
 # -------------------------------
 # Run MCP server
 # -------------------------------
 if __name__ == "__main__":
-    # Print startup information
-    print("🔐 Secure MCP Leave Manager Server")
-    print("=" * 50)
-    
-    if LEVENSHTEIN_AVAILABLE:
-        print("✅ python-levenshtein: Available")
-    else:
-        print("⚠️  python-levenshtein: Not available (using difflib fallback)")
-    
-    # Check API keys
-    if REQUIRE_API_KEY:
-        if API_KEYS:
-            print(f"🔐 API Key Authentication: ENABLED ({len(API_KEYS)} keys configured)")
-            print(f"   Keys: {', '.join(['*' * 8 for _ in API_KEYS])}")
-        else:
-            print("⚠️  API Key Authentication: REQUIRED BUT NO KEYS CONFIGURED")
-            print("   Set MCP_API_KEYS environment variable or disable with MCP_REQUIRE_API_KEY=false")
-            # Continue anyway for development
-            print("   ⚠️  Continuing without API keys - NOT RECOMMENDED FOR PRODUCTION")
-    else:
-        print("🔓 API Key Authentication: DISABLED")
-    
-    # Test database connection
-    print("\n🔌 Testing database connection...")
-    try:
-        if test_database_connection():
-            print("✅ Database connection: Successful")
-        else:
-            print("❌ Database connection: Failed")
-            exit(1)
-    except Exception as e:
-        print(f"❌ Database connection error: {e}")
-        exit(1)
-    
+    if Levenshtein is None:
+        print("Warning: python-levenshtein not installed. Fuzzy quality will be slightly lower. Install with: pip install python-Levenshtein")
+
     transport = os.environ.get("MCP_TRANSPORT", "streamable-http")
     host = os.environ.get("MCP_HOST", "0.0.0.0")
-    port = int(os.environ.get("PORT", "8081"))
+    port = int(os.environ.get("PORT", "8080"))
 
-    print(f"\n🚀 Starting server on {host}:{port}...")
-    print(f"📡 Transport: {transport}")
-    print("=" * 50)
+    # Check if API keys are configured
+    smithery_key = os.environ.get("SMITHERY_API_KEY")
+    mcp_keys = os.environ.get("MCP_API_KEYS", "")
     
+    if not smithery_key and not mcp_keys.strip():
+        print("⚠️  WARNING: No API keys configured. Server is running without authentication!")
+    else:
+        print("✅ API key authentication enabled")
+        if smithery_key:
+            print(f"   - Smithery API key: {smithery_key[:8]}...")
+        if mcp_keys.strip():
+            key_count = len([k for k in mcp_keys.split(",") if k.strip()])
+            print(f"   - Additional API keys: {key_count}")
+
+    print(f"Starting Leave Manager Plus MCP Server on {host}:{port} with {transport} transport")
+    
+    # Use FastMCP's built-in run method
     mcp.run(transport=transport, host=host, port=port)
