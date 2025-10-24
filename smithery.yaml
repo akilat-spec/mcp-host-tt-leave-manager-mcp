@@ -1,52 +1,56 @@
 # smithery.yaml
 build:
-  # Build configuration
   systemDependencies:
     - gcc
     - g++
-
-  # Python dependencies
   pythonRequirements: requirements.txt
 
-# MCP server configuration
-mcp:
-  # Tell Smithery this requires an API key
-  requiresApiKey: true
-  
-  # Instructions for users
-  instructions:
-    - "This MCP server requires an API key to access company HR data"
-    - "Please contact your administrator to get an API key"
-    - "Configure the API key in your MCP client settings"
+startCommand:
+  type: module
+  module: main
 
-# Environment variables
 env:
-  - name: MCP_API_KEY
+  MCP_API_KEY:
     description: "API Key for accessing the MCP server"
     required: true
     secret: true
     
-  - name: DB_HOST
+  DB_HOST:
     description: "MySQL database host"
     required: true
+    default: "103.174.10.72"
     
-  - name: DB_USER  
+  DB_USER:  
     description: "MySQL database user"
     required: true
+    default: "tt_crm_mcp"
     
-  - name: DB_PASSWORD
+  DB_PASSWORD:
     description: "MySQL database password"
     required: true
     secret: true
     
-  - name: DB_NAME
+  DB_NAME:
     description: "MySQL database name"
     required: true
+    default: "tt_crm_mcp"
     
-  - name: DB_PORT
+  DB_PORT:
     description: "MySQL database port"
     default: "3306"
     
-  - name: REQUIRE_API_KEY
+  REQUIRE_API_KEY:
     description: "Require API key authentication"
     default: "true"
+    
+  MCP_TRANSPORT:
+    description: "MCP transport type"
+    default: "streamable-http"
+    
+  MCP_HOST:
+    description: "Server host"
+    default: "0.0.0.0"
+    
+  PORT:
+    description: "Server port"
+    default: "8080"

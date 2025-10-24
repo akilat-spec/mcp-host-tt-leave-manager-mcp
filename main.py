@@ -390,21 +390,8 @@ def resolve_employee_ai(search_name: str, additional_context: str = None) -> Dic
     }
 
 # -------------------------------
-# Secure MCP Tools with API Key Authentication
+# MCP Tools with Authentication
 # -------------------------------
-def secure_tool(func):
-    """Decorator to secure MCP tools with API key authentication"""
-    async def wrapper(request: Request, *args, **kwargs):
-        # Check API key for all tool calls
-        auth_error = authenticate_request(request)
-        if auth_error:
-            return auth_error
-        return await func(request, *args, **kwargs)
-    return wrapper
-
-# All MCP tools are automatically secured by the MCP protocol
-# The authentication happens at the MCP endpoint level
-
 @mcp.tool()
 def get_employee_details(name: str, additional_context: Optional[str] = None) -> str:
     """Get comprehensive details for an employee including personal info, leave balance, and recent activity"""
@@ -495,9 +482,289 @@ def get_leave_balance(name: str, additional_context: Optional[str] = None) -> st
     
     return response
 
-# ... (include all your other tools here - they will be automatically secured)
-# get_work_report, get_leave_history, search_employees, get_employee_profile, 
-# get_attendance_summary, get_client_list, get_projects_overview, get_holidays, etc.
+@mcp.tool()
+def get_work_report(name: str, days: int = 7, additional_context: Optional[str] = None) -> str:
+    """Get work report for an employee for specified number of days"""
+    resolution = resolve_employee_ai(name, additional_context)
+    
+    if resolution['status'] == 'not_found':
+        return f"❌ No employee found matching '{name}'."
+    
+    if resolution['status'] == 'ambiguous':
+        options_text = format_employee_options(resolution['employees'])
+        return f"🔍 {resolution['message']}\n\n{options_text}"
+
+    emp = resolution['employee']
+    work_reports = get_employee_work_report(emp['id'], days)
+    
+    response = f"📋 **Work Report for {emp['developer_name']}**\n"
+    response += f"💼 Designation: {emp.get('designation', 'N/A')}\n"
+    response += f"📅 Period: Last {days} days\n\n"
+    
+    if not work_reports:
+        response += "No work reports found for the specified period."
+        return response
+    
+    total_hours = 0.0
+    for report in work_reports:
+        hours = (report['total_time'] or 0) / 3600 if report.get('total_time') else 0.0
+        total_hours += hours
+        
+        response += f"**{report['date']}** - {report.get('project_name', 'No Project')}\n"
+        response += f"Client: {report.get('client_name', 'N/A')}\n"
+        response += f"Task: {report['task'][:120]}{'...' if len(report.get('task','')) > 120 else ''}\n"
+        if report.get('description'):
+            response += f"Details: {report['description'][:120]}{'...' if len(report.get('description','')) > 120 else ''}\n"
+        response += f"Hours: {hours:.1f}h\n"
+        response += "---\n"
+    
+    response += f"\n**Total Hours ({days} days): {total_hours:.1f}h**\n"
+    response += f"Average per day: { (total_hours/days):.1f}h" if days > 0 else ""
+    
+    return response
+
+@mcp.tool()
+def get_leave_history(name: str, additional_context: Optional[str] = None) -> str:
+    """Get leave history for an employee"""
+    resolution = resolve_employee_ai(name, additional_context)
+    
+    if resolution['status'] == 'not_found':
+        return f"❌ No employee found matching '{name}'."
+    
+    if resolution['status'] == 'ambiguous':
+        options_text = format_employee_options(resolution['employees'])
+        return f"🔍 {resolution['message']}\n\n{options_text}"
+
+    emp = resolution['employee']
+    leave_requests = get_employee_leave_requests(emp['id'], limit=100)
+    
+    response = f"🏖️  **Leave History for {emp['developer_name']}**\n"
+    response += f"💼 Designation: {emp.get('designation', 'N/A')}\n\n"
+    
+    if not leave_requests:
+        response += "No leave requests found."
+        return response
+    
+    approved_count = sum(1 for lr in leave_requests if lr['status'] == 'Approved')
+    pending_count = sum(1 for lr in leave_requests if lr['status'] in ['Requested', 'Pending'])
+    declined_count = sum(1 for lr in leave_requests if lr['status'] == 'Declined')
+    
+    response += f"📊 Summary: {approved_count} Approved, {pending_count} Pending, {declined_count} Declined\n\n"
+    
+    for leave in leave_requests[:40]:
+        status_icon = "✅" if leave['status'] == 'Approved' else "⏳" if leave['status'] in ['Requested', 'Pending'] else "❌"
+        response += f"**{leave['date_of_leave']}** - {leave['leave_type']} {status_icon}\n"
+        if leave.get('dev_comments'):
+            response += f"Reason: {leave['dev_comments']}\n"
+        if leave.get('admin_comments') and leave['status'] != 'Pending':
+            response += f"Admin Note: {leave['admin_comments']}\n"
+        response += "---\n"
+    
+    return response
+
+@mcp.tool()
+def search_employees(search_query: str) -> str:
+    """Search for employees by name, designation, email, or employee number"""
+    employees = fetch_employees_ai(search_term=search_query)
+    
+    if not employees:
+        return f"❌ No employees found matching '{search_query}'"
+    
+    response = f"🔍 **Search Results for '{search_query}':**\n\n"
+    
+    for i, emp in enumerate(employees, 1):
+        response += f"{i}. **{emp['developer_name']}**\n"
+        response += f"   💼 {emp.get('designation', 'N/A')}\n"
+        response += f"   📧 {emp.get('email_id', 'N/A')}\n"
+        response += f"   📞 {emp.get('mobile', 'N/A')}\n"
+        response += f"   🆔 {emp.get('emp_number', 'N/A')}\n"
+        response += f"   🔰 {'Active' if emp.get('status') == 1 else 'Inactive'}\n"
+        
+        # Get quick leave balance
+        try:
+            leave_balance = get_leave_balance_for_employee(emp['id'])
+            if 'error' not in leave_balance:
+                response += f"   📊 Leave Balance: {leave_balance['current_balance']:.1f} days\n"
+        except Exception:
+            pass
+        
+        response += "\n"
+    
+    return response
+
+@mcp.tool()
+def get_employee_profile(name: str, additional_context: Optional[str] = None) -> str:
+    """Return extended HR profile (documents, PF status, confirmation, etc.)"""
+    resolution = resolve_employee_ai(name, additional_context)
+    if resolution['status'] != 'resolved':
+        if resolution['status'] == 'ambiguous':
+            return f"🔍 Ambiguous: \n\n{format_employee_options(resolution['employees'])}"
+        return f"❌ No employee found matching '{name}'."
+
+    emp = resolution['employee']
+    response = f"📇 **HR Profile: {emp['developer_name']}**\n"
+    response += f"🆔 ID: {emp['id']}  |  Emp#: {emp.get('emp_number','N/A')}\n"
+    response += f"💼 Designation: {emp.get('designation','N/A')}\n"
+    response += f"📅 DOJ: {emp.get('doj','N/A')}  |  Confirmation Date: {emp.get('confirmation_date','N/A') if 'confirmation_date' in emp else 'N/A'}\n"
+    response += f"🏥 PF Enabled: {'Yes' if emp.get('is_pf_enabled') in [1,'1',True] else 'No'}\n"
+    response += f"📧 Work Email: {emp.get('email_id','N/A')}  |  Personal Email: {emp.get('personal_emaill','N/A') if 'personal_emaill' in emp else 'N/A'}\n"
+    response += f"📞 Mobile: {emp.get('mobile','N/A')}  |  Emergency Contact: {emp.get('emergency_contact_name','N/A')} ({emp.get('emergency_contact_no','N/A')})\n\n"
+
+    doc_keys = ['pan_front','pan_back','aadhar_front','aadhar_back','degree_front','degree_back']
+    docs_present = []
+    for k in doc_keys:
+        if emp.get(k):
+            docs_present.append(k)
+    if docs_present:
+        response += f"🗂️ Documents available: {', '.join(docs_present)}\n"
+    else:
+        response += "🗂️ No HR document images found.\n"
+
+    if 'opening_leave_balance' in emp:
+        try:
+            response += f"📊 Opening Leave Balance: {float(emp.get('opening_leave_balance') or 0):.1f} days\n"
+        except Exception:
+            pass
+    if emp.get('pf_join_date'):
+        response += f"📌 PF Join Date: {emp.get('pf_join_date')}\n"
+
+    return response
+
+@mcp.tool()
+def get_attendance_summary(name: str, days: int = 30, additional_context: Optional[str] = None) -> str:
+    """Summarize attendance/presence using work_report entries and approved leaves."""
+    resolution = resolve_employee_ai(name, additional_context)
+    if resolution['status'] != 'resolved':
+        if resolution['status'] == 'ambiguous':
+            return f"🔍 Ambiguous: \n\n{format_employee_options(resolution['employees'])}"
+        return f"❌ No employee found matching '{name}'"
+    
+    emp = resolution['employee']
+    end_date = date.today()
+    start_date = end_date - timedelta(days=days)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("""
+            SELECT DISTINCT date FROM work_report
+            WHERE developer_id = %s AND date >= %s AND date <= %s
+        """, (emp['id'], start_date, end_date))
+        work_days = {r['date'] for r in cursor.fetchall() if r.get('date')}
+        
+        cursor.execute("""
+            SELECT date_of_leave, leave_type FROM leave_requests
+            WHERE developer_id = %s AND status = 'Approved' AND date_of_leave >= %s AND date_of_leave <= %s
+        """, (emp['id'], start_date, end_date))
+        leaves = cursor.fetchall()
+        leave_days = [l['date_of_leave'] for l in leaves if l.get('date_of_leave')]
+
+        total_days = (end_date - start_date).days + 1
+        present_days = len(work_days)
+        approved_leave_days = len(set(leave_days))
+        absent_or_missing = total_days - (present_days + approved_leave_days)
+
+        response = f"📅 **Attendance Summary for {emp['developer_name']}**\n"
+        response += f"Period: {start_date} to {end_date} ({total_days} days)\n"
+        response += f"✅ Present (work_report): {present_days} days\n"
+        response += f"🏖️ Approved Leaves: {approved_leave_days} days\n"
+        response += f"❗Absent/Missing logs: {absent_or_missing} days\n"
+        return response
+    except Exception as e:
+        return f"❌ Error generating attendance summary: {e}"
+    finally:
+        cursor.close()
+        conn.close()
+
+@mcp.tool()
+def get_client_list(active_only: bool = True) -> str:
+    """List clients with contact details"""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        if active_only:
+            cursor.execute("SELECT id, client_name, company_name, contact_person, email_id, phone, status FROM client WHERE status = 1 ORDER BY client_name")
+        else:
+            cursor.execute("SELECT id, client_name, company_name, contact_person, email_id, phone, status FROM client ORDER BY client_name")
+        rows = cursor.fetchall()
+        if not rows:
+            return "ℹ️ No clients found."
+
+        response = "👥 **Clients**\n\n"
+        for r in rows[:50]:
+            response += f"• {r.get('client_name')} — {r.get('company_name')}\n"
+            response += f"   Contact: {r.get('contact_person') or 'N/A'} — {r.get('email_id') or 'N/A'} — {r.get('phone') or 'N/A'}\n"
+            response += f"   Status: {'Active' if r.get('status') == 1 else 'Inactive'}\n\n"
+        return response
+    except Exception as e:
+        return f"❌ Error fetching clients: {e}"
+    finally:
+        cursor.close()
+        conn.close()
+
+@mcp.tool()
+def get_projects_overview(active_only: bool = True) -> str:
+    """Show active (or all) projects with client info"""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        if active_only:
+            cursor.execute("""
+                SELECT p.id, p.title, p.status, c.client_name, c.email_id
+                FROM project p
+                LEFT JOIN client c ON p.client_id = c.id
+                WHERE p.status = 1
+                ORDER BY p.date DESC
+            """)
+        else:
+            cursor.execute("""
+                SELECT p.id, p.title, p.status, c.client_name, c.email_id
+                FROM project p
+                LEFT JOIN client c ON p.client_id = c.id
+                ORDER BY p.date DESC
+            """)
+        projects = cursor.fetchall()
+        if not projects:
+            return "❌ No projects found."
+
+        response = "🏗️ **Projects Overview**\n\n"
+        for proj in projects[:100]:
+            response += f"📌 {proj.get('title')} (ID: {proj.get('id')})\n"
+            response += f"   Client: {proj.get('client_name') or 'N/A'} — {proj.get('email_id') or 'N/A'}\n"
+            response += f"   Status: {'Active' if proj.get('status') == 1 else 'Inactive'}\n\n"
+        return response
+    except Exception as e:
+        return f"❌ Error fetching projects: {e}"
+    finally:
+        cursor.close()
+        conn.close()
+
+@mcp.tool()
+def get_holidays(upcoming_days: int = 90) -> str:
+    """List upcoming company holidays"""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        today = date.today()
+        end = today + timedelta(days=upcoming_days)
+        cursor.execute("""
+            SELECT occasion, holiday_date
+            FROM holidays
+            WHERE holiday_date >= %s AND holiday_date <= %s
+            ORDER BY holiday_date ASC
+        """, (today, end))
+        rows = cursor.fetchall()
+        if not rows:
+            return f"ℹ️ No holidays in the next {upcoming_days} days."
+
+        response = f"🎉 **Upcoming Holidays (next {upcoming_days} days)**\n"
+        for r in rows[:100]:
+            response += f"• {r.get('holiday_date')} — {r.get('occasion')}\n"
+        return response
+    except Exception as e:
+        return f"❌ Error fetching holidays: {e}"
+    finally:
+        cursor.close()
+        conn.close()
 
 # -------------------------------
 # MCP Endpoints with Authentication
@@ -561,7 +828,6 @@ if __name__ == "__main__":
         else:
             print("✅ API key authentication: REQUIRED")
             print(f"   Configured API keys: {len(valid_keys)}")
-            # Don't print actual keys for security
     else:
         print("⚠️  WARNING: API key authentication is DISABLED")
         print("   Set REQUIRE_API_KEY=true to enable authentication")
