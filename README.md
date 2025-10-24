@@ -1,5 +1,7 @@
 # Secure MCP Leave Manager Server
 
+[![smithery badge](https://smithery.ai/badge/@akilat-spec/mcp-host-tt-leave-manager-mcp)](https://smithery.ai/server/@akilat-spec/mcp-host-tt-leave-manager-mcp)
+
 A secure Model Context Protocol server for employee leave management, HR operations, and company management with API key authentication.
 
 ## Features
@@ -13,8 +15,17 @@ A secure Model Context Protocol server for employee leave management, HR operati
 
 ## Quick Start
 
+### Installing via Smithery
+
+To install Secure MCP Leave Manager Plus automatically via [Smithery](https://smithery.ai/server/@akilat-spec/mcp-host-tt-leave-manager-mcp):
+
+```bash
+npx -y @smithery/cli install @akilat-spec/mcp-host-tt-leave-manager-mcp
+```
+
 ### 1. Environment Setup
 
 ```bash
 cp .env.example .env
 # Edit .env with your database credentials and API key
+```
