@@ -1,0 +1,51 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-16/server.schema.json",
+  "name": "ai.smithery/akilat-spec-tt-leave-manager-mcp",
+  "description": "Track and manage employee time off with quick balance lookups and streamlined applications.",
+  "version": "1.16.1",
+  "repository": {
+    "url": "https://github.com/akilat-spec/tt-leave-manager-mcp",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://three-flowers-itch.loca.lt",
+      "configSchema": {
+        "type": "object",
+        "required": ["DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME", "MCP_API_KEYS"],
+        "properties": {
+          "DB_HOST": {
+            "type": "string",
+            "default": "103.174.10.72"
+          },
+          "DB_USER": {
+            "type": "string",
+            "default": "tt_crm_mcp"
+          },
+          "DB_PASSWORD": {
+            "type": "string",
+            "default": "F*PAtqhu@sg2w58n"
+          },
+          "DB_NAME": {
+            "type": "string",
+            "default": "tt_crm_mcp"
+          },
+          "DB_PORT": {
+            "type": "string",
+            "default": "3306"
+          },
+          "MCP_API_KEYS": {
+            "type": "string",
+            "description": "Comma-separated list of valid API keys"
+          },
+          "MCP_REQUIRE_API_KEY": {
+            "type": "string",
+            "description": "Set to 'false' to disable API key authentication",
+            "default": "true"
+          }
+        }
+      }
+    }
+  ]
+}
