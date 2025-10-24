@@ -1,0 +1,20 @@
+{
+  "authentication": {
+    "type": "bearer",
+    "token": "0YUrS7QY3LMBWOb68f1Vswk3B1df9B8L"
+  },
+  "test_calls": [
+    {
+      "tool": "get_employee_details",
+      "parameters": {
+        "name": "John"
+      }
+    },
+    {
+      "tool": "search_employees", 
+      "parameters": {
+        "search_query": "test"
+      }
+    }
+  ]
+}
