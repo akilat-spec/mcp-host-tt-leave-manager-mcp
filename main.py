@@ -661,7 +661,7 @@ if __name__ == "__main__":
     
     transport = os.environ.get("MCP_TRANSPORT", "streamable-http")
     host = os.environ.get("MCP_HOST", "0.0.0.0")
-    port = int(os.environ.get("PORT", "8080"))
+    port = int(os.environ.get("PORT", "8081"))
 
     print(f"\n🚀 Starting server on {host}:{port}...")
     print(f"📡 Transport: {transport}")
