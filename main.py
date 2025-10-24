@@ -407,6 +407,7 @@ def get_employee_details(name: str, additional_context: Optional[str] = None) ->
         response += f"📊 Leave Balance: Data not available\n"
     
     return response
+print("DEBUG: Registered tools:", [tool.name for tool in mcp.tools])
 
 @mcp.tool()
 def get_leave_balance(name: str, additional_context: Optional[str] = None) -> str:
@@ -432,6 +433,7 @@ def get_leave_balance(name: str, additional_context: Optional[str] = None) -> st
     response += f"📤 Leaves Used: {leave_balance['used_leaves']:.1f} days\n"
     
     return response
+print("DEBUG: Registered tools:", [tool.name for tool in mcp.tools])
 
 @mcp.tool()
 def search_employees(search_query: str) -> str:
@@ -450,6 +452,7 @@ def search_employees(search_query: str) -> str:
         response += f"   🔰 {'Active' if emp.get('status') == 1 else 'Inactive'}\n\n"
     
     return response
+print("DEBUG: Registered tools:", [tool.name for tool in mcp.tools])
 
 @mcp.tool()
 def get_employee_profile(name: str, additional_context: Optional[str] = None) -> str:
@@ -480,6 +483,7 @@ def get_employee_profile(name: str, additional_context: Optional[str] = None) ->
             pass
     
     return response
+print("DEBUG: Registered tools:", [tool.name for tool in mcp.tools])
 
 # -------------------------------
 # HTTP Endpoints
